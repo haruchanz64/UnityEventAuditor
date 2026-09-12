@@ -1,8 +1,8 @@
 {
   "name": "com.haruchanz64.unity-event-auditor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "Unity Event Auditor",
-  "description": "A custom Unity Editor tool to find, inspect, and clean up UnityEvent bindings in your scenes.",
+  "description": "Unity Editor scanner for locating, auditing, reporting, and cleaning up broken or unused UnityEvent listeners across scenes, prefabs, and ScriptableObjects.",
   "unity": "6000.0",
   "keywords": [
     "unity",

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Object = UnityEngine.Object;
 
 namespace UnityEventAuditor.Editor
 {
@@ -13,15 +15,21 @@ namespace UnityEventAuditor.Editor
         private Vector2 _leftScroll;
         private Vector2 _rightScroll;
 
-        private string _searchQuery = "";
-        private readonly string[] _filterOptions = { "All", "Valid", "Broken" };
+        private string _searchQuery = string.Empty;
+        private readonly string[] _filterOptions = { "All", "Valid", "Broken", "Empty" };
         private string _selectedFilter = "All";
+
+        private bool _includeProjectPrefabs;
+        private bool _includeScriptableObjects;
 
         private List<UnityEventScanner.EventEntry> _allEventEntries = new();
         private List<UnityEventScanner.EventEntry> _filteredEntries = new();
+        private AuditSummary _summary;
 
         private readonly HashSet<GameObject> _gameObjectsWithEvents = new();
         private readonly HashSet<GameObject> _selectedGameObjects = new();
+        private readonly List<ScriptableObject> _scriptableObjectsWithEvents = new();
+        private ScriptableObject _selectedScriptableObject;
 
         private readonly Dictionary<GameObject, bool> _expandedStates = new();
 
@@ -34,7 +42,7 @@ namespace UnityEventAuditor.Editor
         public static void ShowWindow()
         {
             var window = GetWindow<UnityEventAuditorWindow>("Unity Event Auditor");
-            window.minSize = new Vector2(800, 400);
+            window.minSize = new Vector2(860, 440);
         }
 
         private void OnEnable()
@@ -78,9 +86,18 @@ namespace UnityEventAuditor.Editor
 
         private void OnSceneClosed(Scene scene) => RefreshEventList();
 
+        private AuditScanScope GetActiveScope()
+        {
+            var scope = AuditScanScope.ActiveScenes;
+            if (_includeProjectPrefabs) scope |= AuditScanScope.ProjectPrefabs;
+            if (_includeScriptableObjects) scope |= AuditScanScope.ScriptableObjects;
+            return scope;
+        }
+
         private void RefreshEventList()
         {
-            _allEventEntries = UnityEventScanner.ScanAllUnityEvents();
+            _allEventEntries = UnityEventScanner.Scan(GetActiveScope());
+            _summary = UnityEventScanner.ComputeSummary(_allEventEntries);
             RebuildFilteredView();
         }
 
@@ -89,25 +106,32 @@ namespace UnityEventAuditor.Editor
             ApplyFilterAndSearch();
 
             _gameObjectsWithEvents.Clear();
+            _scriptableObjectsWithEvents.Clear();
             var matchedGameObjects = new HashSet<GameObject>();
+            var seenScriptableObjects = new HashSet<ScriptableObject>();
 
-            // Collect all matched GameObjects and their ancestor chain
             foreach (var entry in _filteredEntries)
             {
                 var go = GetEntryGameObject(entry);
-                if (!go) continue;
-
-                matchedGameObjects.Add(go);
-
-                var t = go.transform;
-                while (t)
+                if (go)
                 {
-                    _gameObjectsWithEvents.Add(t.gameObject);
-                    t = t.parent;
+                    matchedGameObjects.Add(go);
+
+                    var t = go.transform;
+                    while (t)
+                    {
+                        _gameObjectsWithEvents.Add(t.gameObject);
+                        t = t.parent;
+                    }
+                }
+                else if (entry.OwnerObject is ScriptableObject so && seenScriptableObjects.Add(so))
+                {
+                    _scriptableObjectsWithEvents.Add(so);
                 }
             }
 
-            // Remove states that no longer apply or reference destroyed objects
+            _scriptableObjectsWithEvents.Sort((a, b) => string.Compare(a.name, b.name, StringComparison.OrdinalIgnoreCase));
+
             var staleKeys = _expandedStates.Keys.Where(go => !go || !_gameObjectsWithEvents.Contains(go)).ToList();
             foreach (var key in staleKeys)
                 _expandedStates.Remove(key);
@@ -116,7 +140,9 @@ namespace UnityEventAuditor.Editor
             if (!_lastClickedGameObject || !_gameObjectsWithEvents.Contains(_lastClickedGameObject))
                 _lastClickedGameObject = null;
 
-            // Auto-expand parents of all matched GameObjects when searching (by GameObject name or event field name)
+            if (_selectedScriptableObject && !seenScriptableObjects.Contains(_selectedScriptableObject))
+                _selectedScriptableObject = null;
+
             if (!string.IsNullOrEmpty(_searchQuery))
             {
                 foreach (var go in matchedGameObjects)
@@ -158,15 +184,19 @@ namespace UnityEventAuditor.Editor
                 ? new List<UnityEventScanner.EventEntry>(_allEventEntries)
                 : _allEventEntries.FindAll(e =>
                     e.OwnerName.IndexOf(_searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    e.FieldName.IndexOf(_searchQuery, StringComparison.OrdinalIgnoreCase) >= 0);
+                    e.FieldName.IndexOf(_searchQuery, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (!string.IsNullOrEmpty(e.PropertyPath) && e.PropertyPath.IndexOf(_searchQuery, StringComparison.OrdinalIgnoreCase) >= 0));
 
             switch (_selectedFilter)
             {
                 case "Valid":
-                    _filteredEntries.RemoveAll(e => e.Listeners.Exists(l => l.IsBroken));
+                    _filteredEntries.RemoveAll(e => e.IsEmpty || e.HasBrokenListeners);
                     break;
                 case "Broken":
-                    _filteredEntries.RemoveAll(e => !e.Listeners.Exists(l => l.IsBroken));
+                    _filteredEntries.RemoveAll(e => !e.HasBrokenListeners);
+                    break;
+                case "Empty":
+                    _filteredEntries.RemoveAll(e => !e.IsEmpty);
                     break;
             }
         }
@@ -174,7 +204,8 @@ namespace UnityEventAuditor.Editor
         private void OnGUI()
         {
             DrawHeader();
-            EditorGUILayout.Space(5);
+            DrawSummaryBar();
+            EditorGUILayout.Space(4);
             EditorGUILayout.BeginHorizontal();
             DrawLeftPanel();
             DrawRightPanel();
@@ -185,66 +216,147 @@ namespace UnityEventAuditor.Editor
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
 
-            if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(80)))
+            if (GUILayout.Button("Refresh", EditorStyles.toolbarButton, GUILayout.Width(65)))
                 RefreshEventList();
 
-            GUILayout.Space(10);
-            GUILayout.Label("Search:", GUILayout.Width(50));
-            var newQuery = GUILayout.TextField(_searchQuery, GUILayout.Width(200));
+            GUILayout.Space(6);
+            GUILayout.Label("Search:", GUILayout.Width(48));
+            var newQuery = GUILayout.TextField(_searchQuery, EditorStyles.toolbarSearchField, GUILayout.Width(180));
             if (newQuery != _searchQuery)
             {
                 _searchQuery = newQuery;
                 RebuildFilteredView();
             }
 
-            GUILayout.Space(10);
-            GUILayout.Label("Filter:", GUILayout.Width(40));
-            var selectedIndex = EditorGUILayout.Popup(Array.IndexOf(_filterOptions, _selectedFilter), _filterOptions,
-                GUILayout.Width(100));
+            GUILayout.Space(6);
+            GUILayout.Label("Filter:", GUILayout.Width(38));
+            var selectedIndex = EditorGUILayout.Popup(
+                Array.IndexOf(_filterOptions, _selectedFilter),
+                _filterOptions,
+                EditorStyles.toolbarPopup,
+                GUILayout.Width(80));
             if (selectedIndex >= 0 && _filterOptions[selectedIndex] != _selectedFilter)
             {
                 _selectedFilter = _filterOptions[selectedIndex];
                 RebuildFilteredView();
             }
 
+            GUILayout.Space(6);
+            var newIncludePrefabs = GUILayout.Toggle(_includeProjectPrefabs, "Prefabs", EditorStyles.toolbarButton, GUILayout.Width(64));
+            var newIncludeSOs = GUILayout.Toggle(_includeScriptableObjects, "ScriptableObjects", EditorStyles.toolbarButton, GUILayout.Width(118));
+            if (newIncludePrefabs != _includeProjectPrefabs || newIncludeSOs != _includeScriptableObjects)
+            {
+                _includeProjectPrefabs = newIncludePrefabs;
+                _includeScriptableObjects = newIncludeSOs;
+                RefreshEventList();
+            }
+
             GUILayout.FlexibleSpace();
 
-            if (GUILayout.Button("Clear Search", EditorStyles.toolbarButton, GUILayout.Width(100)))
+            using (new EditorGUI.DisabledScope(_summary.BrokenListeners == 0))
             {
-                _searchQuery = "";
+                if (GUILayout.Button("Fix All Broken", EditorStyles.toolbarButton, GUILayout.Width(96)))
+                {
+                    var removed = EditorUtils.RemoveAllBrokenListeners(_allEventEntries);
+                    if (removed > 0)
+                    {
+                        RefreshEventList();
+                    }
+                }
+            }
+
+            if (GUILayout.Button("Export CSV", EditorStyles.toolbarButton, GUILayout.Width(78)))
+                ExportReport(asJson: false);
+
+            if (GUILayout.Button("Export JSON", EditorStyles.toolbarButton, GUILayout.Width(84)))
+                ExportReport(asJson: true);
+
+            if (GUILayout.Button("Clear", EditorStyles.toolbarButton, GUILayout.Width(48)))
+            {
+                _searchQuery = string.Empty;
+                _selectedFilter = "All";
                 RebuildFilteredView();
             }
 
             EditorGUILayout.EndHorizontal();
         }
 
+        private void DrawSummaryBar()
+        {
+            EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
+            GUILayout.Label($"Events: {_summary.TotalEvents}", EditorStyles.miniBoldLabel);
+            GUILayout.Space(12);
+            GUILayout.Label($"Listeners: {_summary.TotalListeners}", EditorStyles.miniLabel);
+            GUILayout.Space(12);
+            GUILayout.Label($"Broken: {_summary.BrokenListeners} (in {_summary.EventsWithBrokenListeners} event(s))",
+                _summary.BrokenListeners > 0 ? EditorStyles.boldLabel : EditorStyles.miniLabel);
+            GUILayout.Space(12);
+            GUILayout.Label($"Empty/Unused: {_summary.EmptyEvents}", EditorStyles.miniLabel);
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void ExportReport(bool asJson)
+        {
+            var ext = asJson ? "json" : "csv";
+            var path = EditorUtility.SaveFilePanel("Export UnityEvent Audit Report", Application.dataPath, $"unity_event_audit.{ext}", ext);
+            if (string.IsNullOrEmpty(path)) return;
+
+            var content = asJson
+                ? UnityEventAuditExporter.ToJson(_filteredEntries)
+                : UnityEventAuditExporter.ToCsv(_filteredEntries);
+
+            File.WriteAllText(path, content);
+            Debug.Log($"[UnityEventAuditor] Exported {_filteredEntries.Count} event(s) to '{path}'.");
+        }
+
         private void DrawLeftPanel()
         {
-            EditorGUILayout.BeginVertical("box", GUILayout.Width(300));
-            GUILayout.Label("GameObjects With Events", EditorStyles.boldLabel);
+            EditorGUILayout.BeginVertical("box", GUILayout.Width(310));
+            GUILayout.Label("Objects With Events", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Expand All", GUILayout.Width(100)))
+            if (GUILayout.Button("Expand All", GUILayout.Width(95)))
                 SetAllExpanded(true);
-            if (GUILayout.Button("Collapse All", GUILayout.Width(100)))
+            if (GUILayout.Button("Collapse All", GUILayout.Width(95)))
                 SetAllExpanded(false);
             EditorGUILayout.EndHorizontal();
 
             _leftScroll = EditorGUILayout.BeginScrollView(_leftScroll);
 
-            // Clear and rebuild flatGameObjectList each frame before drawing
             _flatGameObjectList.Clear();
 
             var roots = GetRootGameObjects(_gameObjectsWithEvents);
-            if (roots.Count == 0)
+            if (roots.Count == 0 && _scriptableObjectsWithEvents.Count == 0)
             {
-                EditorGUILayout.LabelField("No GameObjects found.");
+                EditorGUILayout.LabelField("No matching UnityEvents found.");
             }
             else
             {
                 foreach (var root in roots)
                 {
                     DrawGameObjectHierarchy(root, 0);
+                }
+
+                if (_scriptableObjectsWithEvents.Count > 0)
+                {
+                    EditorGUILayout.Space(8);
+                    EditorGUILayout.LabelField("ScriptableObjects", EditorStyles.miniBoldLabel);
+                    foreach (var so in _scriptableObjectsWithEvents)
+                    {
+                        if (!so) continue;
+                        var rect = GUILayoutUtility.GetRect(new GUIContent(so.name), EditorStyles.label);
+                        if (_selectedScriptableObject == so)
+                            EditorGUI.DrawRect(rect, new Color(0.24f, 0.48f, 0.90f, 0.3f));
+
+                        if (GUI.Button(rect, so.name, EditorStyles.label))
+                        {
+                            _selectedGameObjects.Clear();
+                            _selectedScriptableObject = so;
+                            EditorGUIUtility.PingObject(so);
+                            Repaint();
+                        }
+                    }
                 }
             }
 
@@ -256,7 +368,6 @@ namespace UnityEventAuditor.Editor
         {
             if (!go) return;
 
-            // Record each drawn item once in traversal order
             _flatGameObjectList.Add(go);
 
             EditorGUILayout.BeginHorizontal();
@@ -265,7 +376,7 @@ namespace UnityEventAuditor.Editor
             var hasChildrenInEvents = go.transform.Cast<Transform>()
                 .Any(child => child && _gameObjectsWithEvents.Contains(child.gameObject));
 
-            _expandedStates.TryAdd(go, true); // Default to expanded
+            _expandedStates.TryAdd(go, true);
 
             if (hasChildrenInEvents)
             {
@@ -318,6 +429,8 @@ namespace UnityEventAuditor.Editor
 
         private void HandleSelection(GameObject go, Event e)
         {
+            _selectedScriptableObject = null;
+
             if (e.shift && _lastClickedGameObject && _flatGameObjectList.Contains(_lastClickedGameObject))
             {
                 var lastIndex = _flatGameObjectList.IndexOf(_lastClickedGameObject);
@@ -360,13 +473,16 @@ namespace UnityEventAuditor.Editor
                 .Where(go => go && (!go.transform.parent || !gameObjects.Contains(go.transform.parent.gameObject)))
                 .ToList();
 
-            // Sort deterministically by scene handle, then sibling index
             roots.Sort((a, b) =>
             {
-                var sceneCompare = a.scene.handle.CompareTo(b.scene.handle);
-                return sceneCompare != 0
-                    ? sceneCompare
-                    : a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex());
+                var sceneCompare = string.Compare(a.scene.path, b.scene.path, StringComparison.Ordinal);
+                if (sceneCompare != 0)
+                    return sceneCompare;
+
+                var siblingCompare = a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex());
+                return siblingCompare != 0
+                    ? siblingCompare
+                    : string.Compare(a.name, b.name, StringComparison.Ordinal);
             });
 
             return roots;
@@ -375,13 +491,20 @@ namespace UnityEventAuditor.Editor
         private void DrawRightPanel()
         {
             EditorGUILayout.BeginVertical("box");
-            GUILayout.Label("Events for Selected GameObject(s)", EditorStyles.boldLabel);
+            GUILayout.Label("Events for Selected Object(s)", EditorStyles.boldLabel);
 
             _rightScroll = EditorGUILayout.BeginScrollView(_rightScroll);
 
-            if (_selectedGameObjects.Count == 0)
+            if (_selectedGameObjects.Count == 0 && !_selectedScriptableObject)
             {
-                EditorGUILayout.LabelField("Select GameObject(s) to view UnityEvents.", EditorStyles.helpBox);
+                EditorGUILayout.LabelField("Select a GameObject or ScriptableObject to inspect its UnityEvents.", EditorStyles.helpBox);
+            }
+            else if (_selectedScriptableObject)
+            {
+                EditorGUILayout.LabelField(_selectedScriptableObject.name, EditorStyles.boldLabel);
+                var events = _filteredEntries.FindAll(e => e.OwnerObject == _selectedScriptableObject);
+                foreach (var entry in events)
+                    DrawEventEntry(entry);
             }
             else
             {
@@ -394,7 +517,7 @@ namespace UnityEventAuditor.Editor
 
                     if (events.Count == 0)
                     {
-                        EditorGUILayout.LabelField("No events found.", EditorStyles.helpBox);
+                        EditorGUILayout.LabelField("No matching events on this object.", EditorStyles.helpBox);
                     }
                     else
                     {
@@ -415,17 +538,23 @@ namespace UnityEventAuditor.Editor
 
             EditorGUILayout.BeginVertical("box");
 
+            var displayPath = !string.IsNullOrEmpty(entry.PropertyPath) ? entry.PropertyPath : entry.FieldName;
             var title = entry.Component
-                ? $"Event: {entry.Component.GetType().Name}.{entry.FieldName}"
-                : $"Event: {entry.FieldName}";
+                ? $"Event: {entry.Component.GetType().Name}.{displayPath}"
+                : $"Event: {entry.OwnerObject.GetType().Name}.{displayPath}";
             EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
 
-            EditorGUILayout.Space(5);
+            if (!string.IsNullOrEmpty(entry.AssetPath))
+            {
+                EditorGUILayout.LabelField(entry.AssetPath, EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.Space(4);
 
             using (var so = new SerializedObject(entry.OwnerObject))
             {
                 so.Update();
-                var eventProp = so.FindProperty(entry.FieldName);
+                var eventProp = so.FindProperty(displayPath);
                 if (eventProp != null)
                 {
                     EditorGUILayout.PropertyField(eventProp, true);
@@ -434,32 +563,32 @@ namespace UnityEventAuditor.Editor
                 }
             }
 
-            EditorGUILayout.Space(5);
+            EditorGUILayout.Space(4);
             DrawListeners(entry);
 
             EditorGUILayout.EndVertical();
-            EditorGUILayout.Space(8);
+            EditorGUILayout.Space(6);
         }
 
         private void DrawListeners(UnityEventScanner.EventEntry entry)
         {
             if (entry.Listeners.Count == 0)
             {
-                EditorGUILayout.HelpBox("No listeners attached.", MessageType.Info);
+                EditorGUILayout.HelpBox("No listeners attached (Empty / Unused).", MessageType.Info);
             }
             else
             {
                 foreach (var listener in entry.Listeners)
                 {
-                    var label = $" - {(listener.Target ? listener.Target.name : "NULL")}::{listener.MethodName}";
+                    var label = $" - {(listener.Target ? listener.Target.name : "NULL")}::{listener.MethodName} ({listener.Mode})";
                     if (listener.IsBroken)
-                        EditorGUILayout.HelpBox("Broken Listener: " + label, MessageType.Warning);
+                        EditorGUILayout.HelpBox($"Broken Listener: {label}\nReason: {listener.BrokenReason}", MessageType.Warning);
                     else
                         EditorGUILayout.LabelField(label, EditorStyles.helpBox);
                 }
             }
 
-            var hasBroken = entry.Listeners.Exists(l => l.IsBroken);
+            var hasBroken = entry.HasBrokenListeners;
             using (new EditorGUI.DisabledScope(!hasBroken))
             {
                 if (GUILayout.Button("Remove Broken Listeners", GUILayout.Width(200)))

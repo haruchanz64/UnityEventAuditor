@@ -1,55 +1,34 @@
 # Unity Event Auditor
 
-Unity Event Auditor is a Unity Editor tool for Unity 6 (6000.0+) to find, inspect, and clean up `UnityEvent` bindings in your scenes and prefabs.
-
----
+Unity Editor tool for Unity 6 (`6000.0+`) that locates, validates, reports, and cleans up broken or unused `UnityEvent` listeners across loaded scenes, project prefabs, and `ScriptableObject` assets.
 
 ## Features
 
-- Scan All UnityEvents: automatically find all UnityEvent fields across your scene(s).
-- Search & Filter: search by GameObject name or event field name, filter for All, Valid, or Broken listeners.
-- Hierarchy View with Icons: browse GameObjects in a collapsible tree view with foldouts and parent/child relationships.
-- Auto-expand parents when searching: keep matches visible in context.
-- Multi-select support: hold Shift to select multiple GameObjects in the tree.
-- Auto-ping selected objects: selecting a GameObject highlights it in the Unity Hierarchy.
-- Event Inspector Panel: inspect UnityEvents, see listeners, and remove broken ones.
-- Expand/Collapse All: expand or collapse the entire hierarchy tree.
-
----
+- **Deep Serialized Scanning**: Discovers top-level `UnityEvent` fields as well as nested `UnityEvent`s inside `[Serializable]` structs, classes, arrays, and lists.
+- **Full Broken-Listener Detection**: Flags missing targets (`MissingTarget`), unset methods (`MissingMethodName`), and renamed/deleted or signature-incompatible callbacks (`MethodNotFound`).
+- **Multi-Scope Auditing**: Scan loaded scenes (or the active Prefab Stage), optionally include all project `Prefab` and `ScriptableObject` assets.
+- **Filtering & Bulk Cleanup**: Filter by `All`, `Valid`, `Broken`, or `Empty` (unused) events, inspect live `SerializedProperty` widgets, and remove broken listeners individually or across the entire scan with **Fix All Broken** (Undo-supported).
+- **QA / CI Reporting**: Export filtered audit results to **CSV** or **JSON** via `UnityEventAuditExporter`.
 
 ## Installation
 
-**Option 1: Unity Package Manager (Recommended)**
-1. Open `Window > Package Manager` in Unity 6.
-2. Click `+` > **Install package from git URL...**
+### Option 1: Unity Package Manager (Git URL)
+1. Open **Window > Package Manager** in Unity 6.
+2. Click **+** > **Install package from git URL...**
 3. Enter:
    ```text
    https://github.com/haruchanz64/UnityEventAuditor.git
    ```
 
-**Option 2: Download ZIP**
-1. Download the repository as a **ZIP** (`Code > Download ZIP`).
-2. Extract and drop the folder into your Unity project's `Assets` directory.
-
-**Option 3: Git Clone**
-1. Clone this repository directly into your Unity project's `Assets` directory:
-   ```bash
-   git clone https://github.com/haruchanz64/UnityEventAuditor.git Assets/UnityEventAuditor
-   ```
-
----
+### Option 2: Manual Installation
+Clone or extract the repository into your project's `Assets/` directory.
 
 ## Usage
 
-- Open the auditor: `Tools > Unity Event Auditor`.
-- Use the left panel to navigate your hierarchy.
-- Click a `GameObject` to see its UnityEvents on the right.
-- Search, filter, and clean up broken listeners.
-
----
+1. Open **Tools > Unity Event Auditor**.
+2. Toggle **Prefabs** or **ScriptableObjects** in the toolbar if you want to scan project assets in addition to loaded scenes.
+3. Search by object name or property path, filter by **Broken** or **Empty**, and use **Remove Broken Listeners** or **Fix All Broken** to clean up invalid bindings.
+4. Click **Export CSV** or **Export JSON** to generate an audit report.
 
 ## License
-
-[MIT](https://github.com/haruchanz64/UnityEventAuditor/blob/main/LICENSE). You can use, modify, and share this tool.
-
----
+[MIT License](LICENSE)
