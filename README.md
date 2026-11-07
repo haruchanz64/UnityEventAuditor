@@ -25,7 +25,7 @@ Clone or extract the repository into your project's `Assets/` directory.
 
 ## Usage
 
-1. Open `Tools > Unity Event Auditor`.
+1. Open `Tools > HaruChanZ64 > Analysis > UnityEventAuditor > Unity Event Auditor`.
 2. Toggle `Prefabs` or `ScriptableObjects` in the toolbar to scan project assets in addition to loaded scenes.
 3. Search by object name or property path, filter by `Broken` or `Empty`, and use `Remove Broken Listeners` or `Fix All Broken` to clean up invalid bindings.
 4. Click `Export CSV` or `Export JSON` to generate an audit report.

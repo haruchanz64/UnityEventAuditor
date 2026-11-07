@@ -38,7 +38,7 @@ namespace UnityEventAuditor.Editor
         private GameObject _lastClickedGameObject;
         private readonly List<GameObject> _flatGameObjectList = new();
 
-        [MenuItem("Tools/Unity Event Auditor")]
+        [MenuItem("Tools/HaruChanZ64/Analysis/UnityEventAuditor/Unity Event Auditor", false, 164)]
         public static void ShowWindow()
         {
             var window = GetWindow<UnityEventAuditorWindow>("Unity Event Auditor");
