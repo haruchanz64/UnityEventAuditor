@@ -10,6 +10,9 @@ namespace UnityEventAuditor.Editor
     /// </summary>
     public static class UnityEventAuditExporter
     {
+        /// <summary>
+        /// Serializable root DTO matching the schema emitted by <see cref="ToJson"/> via <see cref="JsonUtility"/>.
+        /// </summary>
         [Serializable]
         private sealed class AuditReportDto
         {
@@ -20,6 +23,9 @@ namespace UnityEventAuditor.Editor
             public List<EventEntryDto> events = new();
         }
 
+        /// <summary>
+        /// Serializable per-event DTO included in JSON audit reports.
+        /// </summary>
         [Serializable]
         private sealed class EventEntryDto
         {
@@ -32,6 +38,9 @@ namespace UnityEventAuditor.Editor
             public List<ListenerDto> listeners = new();
         }
 
+        /// <summary>
+        /// Serializable per-listener DTO included in JSON audit reports.
+        /// </summary>
         [Serializable]
         private sealed class ListenerDto
         {
@@ -43,6 +52,12 @@ namespace UnityEventAuditor.Editor
             public string reason;
         }
 
+        /// <summary>
+        /// Serializes the given audit entries and their summary statistics into a JSON report string.
+        /// </summary>
+        /// <param name="entries">Scanned event entries to include; null or empty lists produce a valid report with zeroed totals.</param>
+        /// <param name="prettyPrint">When true, formats the JSON with indentation for readability; when false, emits compact single-line JSON.</param>
+        /// <returns>JSON string serialized with <see cref="JsonUtility"/>.</returns>
         public static string ToJson(IReadOnlyList<UnityEventScanner.EventEntry> entries, bool prettyPrint = true)
         {
             var summary = UnityEventScanner.ComputeSummary(entries);
@@ -92,6 +107,11 @@ namespace UnityEventAuditor.Editor
             return JsonUtility.ToJson(report, prettyPrint);
         }
 
+        /// <summary>
+        /// Serializes the given audit entries into an RFC 4180 CSV report with one row per listener (or one <c>Empty</c> row for events with no listeners).
+        /// </summary>
+        /// <param name="entries">Scanned event entries to export; null lists return only the CSV header row.</param>
+        /// <returns>CSV text containing the header and one row per exported listener or empty event.</returns>
         public static string ToCsv(IReadOnlyList<UnityEventScanner.EventEntry> entries)
         {
             var sb = new StringBuilder();
@@ -133,6 +153,11 @@ namespace UnityEventAuditor.Editor
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Quotes and escapes a CSV field when it contains commas, double quotes, or line breaks.
+        /// </summary>
+        /// <param name="value">Raw field text, or null.</param>
+        /// <returns>CSV-safe field text, or an empty string when <paramref name="value"/> is null or empty.</returns>
         private static string EscapeCsv(string value)
         {
             if (string.IsNullOrEmpty(value))

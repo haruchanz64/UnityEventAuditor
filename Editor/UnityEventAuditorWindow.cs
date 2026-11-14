@@ -10,6 +10,9 @@ using Object = UnityEngine.Object;
 
 namespace UnityEventAuditor.Editor
 {
+    /// <summary>
+    /// Split-pane Editor window for scanning, filtering, inspecting, cleaning up, and exporting serialized <see cref="UnityEngine.Events.UnityEventBase"/> bindings.
+    /// </summary>
     public class UnityEventAuditorWindow : EditorWindow
     {
         private Vector2 _leftScroll;
@@ -38,6 +41,9 @@ namespace UnityEventAuditor.Editor
         private GameObject _lastClickedGameObject;
         private readonly List<GameObject> _flatGameObjectList = new();
 
+        /// <summary>
+        /// Opens or focuses the Unity Event Auditor Editor window.
+        /// </summary>
         [MenuItem("Tools/HaruChanZ64/Analysis/UnityEventAuditor/Unity Event Auditor", false, 164)]
         public static void ShowWindow()
         {
@@ -45,6 +51,9 @@ namespace UnityEventAuditor.Editor
             window.minSize = new Vector2(860, 440);
         }
 
+        /// <summary>
+        /// Runs the initial event scan and subscribes to hierarchy, scene, Prefab Stage, Undo, and editor update callbacks.
+        /// </summary>
         private void OnEnable()
         {
             RefreshEventList();
@@ -57,6 +66,9 @@ namespace UnityEventAuditor.Editor
             EditorApplication.update += OnUpdate;
         }
 
+        /// <summary>
+        /// Unsubscribes all Editor lifecycle and change-tracking callbacks when the window closes or reloads.
+        /// </summary>
         private void OnDisable()
         {
             EditorApplication.hierarchyChanged -= OnHierarchyChanged;
@@ -74,6 +86,9 @@ namespace UnityEventAuditor.Editor
 
         private void OnUndoRedoPerformed() => _isDirty = true;
 
+        /// <summary>
+        /// Coalesces pending dirty notifications into a single rescan and repaint on the next Editor update tick.
+        /// </summary>
         private void OnUpdate()
         {
             if (!_isDirty) return;
@@ -86,6 +101,9 @@ namespace UnityEventAuditor.Editor
 
         private void OnSceneClosed(Scene scene) => RefreshEventList();
 
+        /// <summary>
+        /// Builds the active <see cref="AuditScanScope"/> flags from the current toolbar toggle state.
+        /// </summary>
         private AuditScanScope GetActiveScope()
         {
             var scope = AuditScanScope.ActiveScenes;
@@ -94,6 +112,9 @@ namespace UnityEventAuditor.Editor
             return scope;
         }
 
+        /// <summary>
+        /// Rescans all targets in the active scope, recomputes summary totals, and updates the filtered tree view.
+        /// </summary>
         private void RefreshEventList()
         {
             _allEventEntries = UnityEventScanner.Scan(GetActiveScope());
@@ -101,6 +122,9 @@ namespace UnityEventAuditor.Editor
             RebuildFilteredView();
         }
 
+        /// <summary>
+        /// Rebuilds the visible GameObject ancestor set, ScriptableObject list, selection state, and search-driven foldout expansion from the active filter and search query.
+        /// </summary>
         private void RebuildFilteredView()
         {
             ApplyFilterAndSearch();
@@ -165,6 +189,9 @@ namespace UnityEventAuditor.Editor
             }
         }
 
+        /// <summary>
+        /// Resolves the <see cref="GameObject"/> associated with <paramref name="entry"/>, or null for non-GameObject owners such as <see cref="ScriptableObject"/>s.
+        /// </summary>
         private static GameObject GetEntryGameObject(UnityEventScanner.EventEntry entry)
         {
             if (entry == null || !entry.OwnerObject)
@@ -178,6 +205,9 @@ namespace UnityEventAuditor.Editor
             };
         }
 
+        /// <summary>
+        /// Populates <c>_filteredEntries</c> by matching the search query against owner name, field name, and property path, then applying the active status filter.
+        /// </summary>
         private void ApplyFilterAndSearch()
         {
             _filteredEntries = string.IsNullOrEmpty(_searchQuery)
@@ -201,6 +231,9 @@ namespace UnityEventAuditor.Editor
             }
         }
 
+        /// <summary>
+        /// Renders the toolbar, summary banner, and split left/right audit panes.
+        /// </summary>
         private void OnGUI()
         {
             DrawHeader();
@@ -212,6 +245,9 @@ namespace UnityEventAuditor.Editor
             EditorGUILayout.EndHorizontal();
         }
 
+        /// <summary>
+        /// Draws the top toolbar containing refresh, search, status filter, scope toggles, bulk broken-listener cleanup, and report export actions.
+        /// </summary>
         private void DrawHeader()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
@@ -281,6 +317,9 @@ namespace UnityEventAuditor.Editor
             EditorGUILayout.EndHorizontal();
         }
 
+        /// <summary>
+        /// Draws the summary help box displaying total events, listeners, broken counts, and empty events for the active scan.
+        /// </summary>
         private void DrawSummaryBar()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.helpBox);
@@ -296,6 +335,10 @@ namespace UnityEventAuditor.Editor
             EditorGUILayout.EndHorizontal();
         }
 
+        /// <summary>
+        /// Prompts for an output file path and writes the currently filtered event entries as JSON or CSV.
+        /// </summary>
+        /// <param name="asJson">When true, exports JSON via <see cref="UnityEventAuditExporter.ToJson"/>; otherwise exports CSV via <see cref="UnityEventAuditExporter.ToCsv"/>.</param>
         private void ExportReport(bool asJson)
         {
             var ext = asJson ? "json" : "csv";
@@ -310,6 +353,9 @@ namespace UnityEventAuditor.Editor
             Debug.Log($"[UnityEventAuditor] Exported {_filteredEntries.Count} event(s) to '{path}'.");
         }
 
+        /// <summary>
+        /// Draws the left-hand object browser displaying the filtered GameObject hierarchy and matching <see cref="ScriptableObject"/> assets.
+        /// </summary>
         private void DrawLeftPanel()
         {
             EditorGUILayout.BeginVertical("box", GUILayout.Width(310));
@@ -364,6 +410,9 @@ namespace UnityEventAuditor.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// Recursively draws a <see cref="GameObject"/> row and its visible event-bearing descendants while populating <c>_flatGameObjectList</c> for range selection.
+        /// </summary>
         private void DrawGameObjectHierarchy(GameObject go, int indent)
         {
             if (!go) return;
@@ -418,6 +467,9 @@ namespace UnityEventAuditor.Editor
             }
         }
 
+        /// <summary>
+        /// Sets the foldout expansion state for every visible <see cref="GameObject"/> in the left hierarchy panel.
+        /// </summary>
         private void SetAllExpanded(bool expanded)
         {
             foreach (var go in _gameObjectsWithEvents)
@@ -427,6 +479,9 @@ namespace UnityEventAuditor.Editor
             }
         }
 
+        /// <summary>
+        /// Updates GameObject selection supporting single click, Shift range selection, and Ctrl/Cmd toggle selection, and pings selected objects in the Editor.
+        /// </summary>
         private void HandleSelection(GameObject go, Event e)
         {
             _selectedScriptableObject = null;
@@ -467,6 +522,9 @@ namespace UnityEventAuditor.Editor
             Repaint();
         }
 
+        /// <summary>
+        /// Extracts top-level root <see cref="GameObject"/>s from <paramref name="gameObjects"/> sorted deterministically by scene path, sibling index, and name.
+        /// </summary>
         private static List<GameObject> GetRootGameObjects(HashSet<GameObject> gameObjects)
         {
             var roots = gameObjects
@@ -488,6 +546,9 @@ namespace UnityEventAuditor.Editor
             return roots;
         }
 
+        /// <summary>
+        /// Draws the right-hand inspector pane listing matching <see cref="UnityEventScanner.EventEntry"/> blocks for the selected object(s).
+        /// </summary>
         private void DrawRightPanel()
         {
             EditorGUILayout.BeginVertical("box");
@@ -531,6 +592,9 @@ namespace UnityEventAuditor.Editor
             EditorGUILayout.EndVertical();
         }
 
+        /// <summary>
+        /// Renders a single scanned event card including its asset path, live editable <see cref="SerializedProperty"/> drawer, and listener diagnostics.
+        /// </summary>
         private void DrawEventEntry(UnityEventScanner.EventEntry entry)
         {
             if (entry == null || !entry.OwnerObject)
@@ -570,6 +634,9 @@ namespace UnityEventAuditor.Editor
             EditorGUILayout.Space(6);
         }
 
+        /// <summary>
+        /// Renders per-listener status badges, warning reasons for broken calls, and a per-event broken-listener cleanup button.
+        /// </summary>
         private void DrawListeners(UnityEventScanner.EventEntry entry)
         {
             if (entry.Listeners.Count == 0)

@@ -5,8 +5,16 @@ using UnityEngine.Events;
 
 namespace UnityEventAuditor.Editor
 {
+    /// <summary>
+    /// Utility methods for removing broken persistent listeners from scanned <see cref="UnityEventBase"/> entries with Undo support.
+    /// </summary>
     public static class EditorUtils
     {
+        /// <summary>
+        /// Removes all invalid persistent calls from a single scanned event entry, recording an Undo step and marking the owner dirty.
+        /// </summary>
+        /// <param name="entry">Scanned event entry whose serialized <c>m_PersistentCalls.m_Calls</c> array will be cleaned.</param>
+        /// <returns>Number of broken persistent listeners removed from <paramref name="entry"/>.</returns>
         public static int RemoveBrokenListeners(UnityEventScanner.EventEntry entry)
         {
             if (entry == null || !entry.OwnerObject)
@@ -27,6 +35,7 @@ namespace UnityEventAuditor.Editor
             if (callsProp == null || !callsProp.isArray)
                 return 0;
 
+            // Iterate backwards so DeleteArrayElementAtIndex does not shift remaining indices.
             var removedCount = 0;
             for (var i = callsProp.arraySize - 1; i >= 0; i--)
             {
@@ -59,6 +68,11 @@ namespace UnityEventAuditor.Editor
             return removedCount;
         }
 
+        /// <summary>
+        /// Removes broken persistent listeners across all provided entries and collapses the edits into a single Undo operation.
+        /// </summary>
+        /// <param name="entries">Sequence of scanned event entries to clean; null entries or entries without broken listeners are skipped.</param>
+        /// <returns>Total number of broken persistent listeners removed across all entries.</returns>
         public static int RemoveAllBrokenListeners(IEnumerable<UnityEventScanner.EventEntry> entries)
         {
             if (entries == null)

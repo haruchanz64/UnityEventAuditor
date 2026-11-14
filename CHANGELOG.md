@@ -5,6 +5,11 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-11-14
+### Changed
+- Upgraded `README.md` into a full developer guide covering architecture, programmatic audit/cleanup/validation code examples, core API reference, samples, EditMode testing, and troubleshooting notes.
+- Added XML documentation comments across all `Editor/` and `Samples~/` C# types, public members, and non-trivial helper methods.
+
 ## [1.1.0] - 2026-09-12
 ### Added
 - Deep `SerializedProperty` traversal in `UnityEventScanner` so nested `UnityEvent` fields inside `[Serializable]` structs, classes, arrays, and lists are discovered alongside top-level fields.
